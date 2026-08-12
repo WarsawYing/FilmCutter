@@ -9,6 +9,12 @@ exports them as individual, color-managed 16-bit TIFF files.
 FilmCutter 是一个原生 macOS 胶片裁切工具：导入胶片扫描稿，检查或手动调整画格，
 然后批量导出独立 TIFF。
 
+<p align="center">
+  <img src="docs/images/filmcutter-welcome.png"
+       alt="FilmCutter welcome scene"
+       width="820">
+</p>
+
 ## Download / 下载
 
 **[Download FilmCutter 1.01 Beta for Apple Silicon](https://github.com/WarsawYing/FilmCutter/releases/download/v1.0.1-beta.1/FilmCutter-1.01-Beta-macOS-Apple-Silicon.zip)**
