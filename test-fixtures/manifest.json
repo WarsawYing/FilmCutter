@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "large_files_are_not_committed": true,
+  "fixture_root_environment": "FILMCUTTER_FIXTURE_DIR",
+  "beta_135": [
+    {"file":"135NegSample1.tif","expected_count":12,"format_id":"135","sha256":"11846f84afa75bf527b4d498df54fba264536dcf9e2aef89c2248095b0092302"},
+    {"file":"135NegSample2.tiff","expected_count":2,"format_id":"135","sha256":"807bdbc3388cf9bfe540fdb9ae6a91ce904c8f9a831b45e1d01d05fc8772b586"},
+    {"file":"135PosSample1.tiff","expected_count":12,"format_id":"135","sha256":"089dac0ef4751ec6c16fafac5a7c4c67aa85d02387850a72b365fd69590f90bd"}
+  ],
+  "v1_1_gate": {
+    "required_real_scans_per_format": 2,
+    "formats": ["135","135_half","65x24","645","66","67","68","69","612","617"],
+    "minimum_box_iou": 0.90,
+    "minimum_median_iou": 0.95
+  }
+}

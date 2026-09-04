@@ -44,6 +44,20 @@ def _dpi_from_page(page) -> tuple:
         return (0, 0)
 
 
+def _validate_page(page, page_count: int):
+    if page_count != 1:
+        raise ValueError(
+            f"Multi-page TIFF is not supported yet ({page_count} pages). "
+            "Export or split it into one TIFF per scan."
+        )
+    compression = getattr(page.compression, "name", str(page.compression))
+    if compression not in {"NONE", "1"}:
+        raise ValueError(
+            f"Compressed TIFF is not supported in FilmCutter 1.1 ({compression}). "
+            "Export an uncompressed TIFF."
+        )
+
+
 def read_image(filepath: str, memory_mapped: bool = False) -> tuple:
     """
     Read the first page of a TIFF while preserving its native sample depth.
@@ -67,17 +81,8 @@ def read_image(filepath: str, memory_mapped: bool = False) -> tuple:
     with tifffile.TiffFile(filepath) as tif:
         if not tif.pages:
             raise ValueError("TIFF contains no image pages")
-        if len(tif.pages) != 1:
-            # Frame coordinates currently identify only x/y inside one image;
-            # they do not carry a page index. Silently reading page 1 would
-            # make the remaining scans disappear, so fail explicitly until
-            # page-aware plans are added to both Swift and Python.
-            raise ValueError(
-                f"Multi-page TIFF is not supported yet ({len(tif.pages)} pages). "
-                "Export or split it into one TIFF per scan."
-            )
-
         page = tif.pages[0]
+        _validate_page(page, len(tif.pages))
         if memory_mapped:
             try:
                 array = tifffile.memmap(filepath, page=0, mode="r")
@@ -147,6 +152,7 @@ def get_image_info(filepath: str) -> dict:
         if not tif.pages:
             raise ValueError("TIFF contains no image pages")
         page = tif.pages[0]
+        _validate_page(page, len(tif.pages))
         samples = int(_first_value(page.samplesperpixel, 1))
         mode = "RGB" if samples >= 3 else "L"
         compression = getattr(page.compression, "name", str(page.compression))

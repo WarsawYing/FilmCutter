@@ -10,9 +10,10 @@ final class PythonBridge: ObservableObject {
     // MARK: - Private Properties
 
     private var enginePath: String = ""
-    private var pythonPath: String = "/usr/bin/python3"
+    private var pythonPath: String = ""
     private let processQueue = DispatchQueue(label: "com.filmcutter.python", qos: .userInitiated)
     private var currentProcess: Process?
+    private var recoverablePlan: ([ScanPlan], Int)?
 
     /// Maximum time (seconds) to wait for a Python command to complete
     private static let commandTimeout: TimeInterval = 360  // 6 min for large scans
@@ -29,14 +30,14 @@ final class PythonBridge: ObservableObject {
         let bundledEngine = resourcePath.appendingPathComponent("PythonEngine/engine.py").path
         if FileManager.default.fileExists(atPath: bundledEngine) {
             enginePath = bundledEngine
-            // Use bundled Python 3.11 from venv (system /usr/bin/python3 is 3.9, incompatible)
-            let bundledPython = resourcePath.appendingPathComponent("PythonEngine/venv/bin/python3").path
+            let bundledPython = resourcePath.appendingPathComponent("PythonRuntime/bin/python3").path
             if FileManager.default.isExecutableFile(atPath: bundledPython) {
                 pythonPath = bundledPython
             }
         }
 
-        // 2. Search upward from exe dir (development mode)
+        #if DEBUG
+        // Development builds may use an explicitly supplied interpreter.
         if enginePath.isEmpty {
             var dir: URL? = exeDir
             while let d = dir, d.path != "/" {
@@ -46,15 +47,20 @@ final class PythonBridge: ObservableObject {
                     let venvPy = d.appendingPathComponent("PythonEngine/venv/bin/python3").path
                     if FileManager.default.isExecutableFile(atPath: venvPy) {
                         pythonPath = venvPy
+                    } else if let executable = ProcessInfo.processInfo.environment["FILMCUTTER_DEV_PYTHON"],
+                              FileManager.default.isExecutableFile(atPath: executable) {
+                        pythonPath = executable
                     }
                     break
                 }
                 dir = d.deletingLastPathComponent()
             }
         }
+        #endif
 
-        let log = "[PythonBridge] Python: \(pythonPath)\n[PythonBridge] Engine: \(enginePath)"
-        print(log)
+        #if DEBUG
+        print("[PythonBridge] Python: \(pythonPath)\n[PythonBridge] Engine: \(enginePath)")
+        #endif
     }
 
     deinit {
@@ -65,20 +71,22 @@ final class PythonBridge: ObservableObject {
 
     /// Detect frames and generate preview(s) for the given file(s).
     func loadScanPlans(files: [String], format: String = "auto",
-                       detector: DetectorMode = .v2, borderPx: Int = 4) {
-        state = .loading(progress: 0.0, message: "Starting...")
+                       expectedCount: Int? = nil, refineContour: Bool = false) {
+        state = .loading(progress: 0.0, message: "PROGRESS_START")
 
         let request = ProcessRequest(
             command: "preview",
             file: files.first,
-            borderPx: borderPx,
+            borderPx: 0,
             invert: nil,
             outputDir: nil,
             batchName: nil,
             frames: nil,
             files: files,
-            format: format,
-            detector: detector.identifier,
+            formatID: format,
+            expectedCount: expectedCount,
+            refineContour: refineContour,
+            frameCount: nil,
             combinedFrames: nil,
             metadata: nil
         )
@@ -101,8 +109,12 @@ final class PythonBridge: ObservableObject {
                                 detectedFrames: frames,
                                 automaticFrames: frames,
                                 hasManualEdits: false,
-                                detectorMode: detector,
-                                rollPreset: self.rollPresetFromString(pd.estimatedFormat ?? format),
+                                rollPreset: RollPreset.from(identifier: pd.selectedFormat ?? format),
+                                expectedFrameCount: pd.expectedCount,
+                                useContourRefinement: refineContour,
+                                refinementApplied: pd.refinementApplied ?? false,
+                                refinementFallbackReason: pd.refinementFallbackReason,
+                                detectionRevision: 0,
                                 imageWidth: pd.width ?? 0,
                                 imageHeight: pd.height ?? 0,
                                 bitDepth: pd.bitDepth ?? 16,
@@ -110,16 +122,15 @@ final class PythonBridge: ObservableObject {
                             )
                         }.compactMap { $0 }
                         if plans.isEmpty {
-                            self.state = .failed("ERR_0004: No frames detected in any file.")
+                            self.state = .failed("ERR_NO_FRAMES")
                         } else {
                             self.state = .plan(plans: plans, currentIndex: 0)
                         }
                     } else {
-                        let code = response.errorCode ?? "ERR_0006"
-                        self.state = .failed("\(code): \(response.message ?? "Preview failed.")")
+                        self.state = .failed(response.errorCode ?? "ERR_PREVIEW_PARTIAL")
                     }
                 case .failure(let error):
-                    self.state = .failed(error.localizedDescription)
+                    self.state = .failed((error as? ProcessError)?.code ?? "ERR_ENGINE")
                 }
             }
         }
@@ -141,8 +152,10 @@ final class PythonBridge: ObservableObject {
             batchName: rollName,
             frames: nil,
             files: plans.map { $0.filePath },
-            format: nil,
-            detector: nil,
+            formatID: nil,
+            expectedCount: nil,
+            refineContour: nil,
+            frameCount: nil,
             combinedFrames: combinedFrames,
             metadata: metadata
         )
@@ -155,31 +168,32 @@ final class PythonBridge: ObservableObject {
                     if pr.status == "ok" || pr.status == "complete" {
                         self.state = .completed(pr.files ?? [])
                     } else {
-                        let code = pr.errorCode ?? "ERR_0006"
-                        self.state = .failed("\(code): \(pr.message ?? "Processing failed")")
+                        self.state = .failed(pr.errorCode ?? "ERR_PROCESS")
                     }
                 case .failure(let error):
-                    self.state = .failed(error.localizedDescription)
+                    self.state = .failed((error as? ProcessError)?.code ?? "ERR_ENGINE")
                 }
             }
         }
     }
 
     /// Update a single scan's detection with a specific format preset.
-    func redetect(filePath: String, format: String, detector: DetectorMode,
-                  borderPx: Int,
+    func redetect(filePath: String, format: String, expectedCount: Int?,
+                  refineContour: Bool,
                   completion: @escaping (Result<PreviewData, Error>) -> Void) {
         let request = ProcessRequest(
             command: "preview",
             file: filePath,
-            borderPx: borderPx,
+            borderPx: 0,
             invert: nil,
             outputDir: nil,
             batchName: nil,
             frames: nil,
             files: [filePath],
-            format: format,
-            detector: detector.identifier,
+            formatID: format,
+            expectedCount: expectedCount,
+            refineContour: refineContour,
+            frameCount: nil,
             combinedFrames: nil,
             metadata: nil
         )
@@ -191,7 +205,7 @@ final class PythonBridge: ObservableObject {
                     completion(.success(first))
                 } else {
                     completion(.failure(NSError(domain: "FilmCutter", code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: response.message ?? "ERR_0006: Redetect failed"])))
+                        userInfo: [NSLocalizedDescriptionKey: response.errorCode ?? "ERR_PREVIEW_PARTIAL"])))
                 }
             case .failure(let error):
                 completion(.failure(error))
@@ -201,36 +215,33 @@ final class PythonBridge: ObservableObject {
 
     /// Transition to plan state
     func transitionToPlan(_ plans: [ScanPlan], index: Int) {
+        recoverablePlan = (plans, index)
         state = .plan(plans: plans, currentIndex: index)
     }
 
     /// Transition to action stage
     func transitionToAction(plans: [ScanPlan], rollName: String, outputDir: String) {
+        recoverablePlan = (plans, 0)
         state = .action(plans: plans, rollName: rollName, outputDir: outputDir)
+    }
+
+    func restorePlanIfAvailable() {
+        if let (plans, index) = recoverablePlan {
+            state = .plan(plans: plans, currentIndex: min(index, max(0, plans.count - 1)))
+        } else {
+            state = .idle
+        }
     }
 
     /// Reset back to idle.
     func reset() {
         killProcess()
+        recoverablePlan = nil
         state = .idle
     }
 
-    // MARK: - Helpers
-
-    private func rollPresetFromString(_ s: String) -> RollPreset {
-        switch s.lowercased() {
-        case "135": return ._135
-        case "135p": return ._135p
-        case "65x24": return ._65x24
-        case "645": return ._645
-        case "66": return ._66
-        case "67": return ._67
-        case "68": return ._68
-        case "69": return ._69
-        case "612": return ._612
-        case "617": return ._617
-        default: return .auto
-        }
+    func cancelCurrentOperation() {
+        killProcess()
     }
 
     // MARK: - Streaming Engine Communication
@@ -263,12 +274,10 @@ final class PythonBridge: ObservableObject {
     private func runPythonWithProgress(request: ProcessRequest) throws -> Data {
         let encoder = JSONEncoder()
         guard !enginePath.isEmpty, FileManager.default.fileExists(atPath: enginePath) else {
-            throw ProcessError(code: "ERR_0002",
-                               message: "Python engine was not found. Run setup.sh and relaunch FilmCutter.")
+            throw ProcessError(code: "ERR_ENGINE", message: "engine_missing")
         }
         guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
-            throw ProcessError(code: "ERR_0003",
-                               message: "Python environment is unavailable. Run setup.sh and relaunch FilmCutter.")
+            throw ProcessError(code: "ERR_ENGINE", message: "runtime_missing")
         }
         let inputData = try encoder.encode(request)
         guard let inputString = String(data: inputData, encoding: .utf8) else {
@@ -277,7 +286,7 @@ final class PythonBridge: ObservableObject {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: pythonPath)
-        process.arguments = [enginePath]
+        process.arguments = ["-B", "-I", enginePath]
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
@@ -367,7 +376,7 @@ final class PythonBridge: ObservableObject {
                         if status == "progress" {
                             // Update progress on main thread
                             let progress = jsonObj["progress"] as? Double ?? 0.0
-                            let message = jsonObj["message"] as? String ?? ""
+                            let message = jsonObj["message_code"] as? String ?? "PROGRESS_START"
                             DispatchQueue.main.async { [weak self] in
                                 if case .loading = self?.state {
                                     self?.state = .loading(progress: progress, message: message)
@@ -467,6 +476,11 @@ struct PreviewData: Codable {
     let height: Int?
     let bitDepth: Int?
     let estimatedFormat: String?
+    let selectedFormat: String?
+    let foundCount: Int?
+    let expectedCount: Int?
+    let refinementApplied: Bool?
+    let refinementFallbackReason: String?
     let frames: [FilmFrame]?
     let previewB64: String?
 
@@ -476,6 +490,11 @@ struct PreviewData: Codable {
         case width, height
         case bitDepth = "bit_depth"
         case estimatedFormat = "estimated_format"
+        case selectedFormat = "selected_format"
+        case foundCount = "found_count"
+        case expectedCount = "expected_count"
+        case refinementApplied = "refinement_applied"
+        case refinementFallbackReason = "refinement_fallback_reason"
         case frames
         case previewB64 = "preview_b64"
     }

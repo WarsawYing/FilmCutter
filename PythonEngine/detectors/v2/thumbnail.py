@@ -51,6 +51,12 @@ def _open_page_as_memmap(filepath: str):
                 f"Multi-page TIFF is not supported yet ({len(tif.pages)} pages)"
             )
         page = tif.pages[0]
+        compression = getattr(page.compression, "name", str(page.compression))
+        if compression not in {"NONE", "1"}:
+            raise ValueError(
+                f"Compressed TIFF is not supported in FilmCutter 1.1 ({compression}). "
+                "Export an uncompressed TIFF."
+            )
         samples = int(page.samplesperpixel or 1)
         bit_depth_value = page.bitspersample or 8
         if isinstance(bit_depth_value, (tuple, list)):

@@ -1,4 +1,2 @@
-Pillow>=10.0,<12
-numpy>=1.24,<2.1
-scipy>=1.10,<1.14
-tifffile>=2024.1,<2025
+numpy==2.5.1
+tifffile==2026.7.14

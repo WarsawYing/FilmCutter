@@ -4,6 +4,7 @@ Handles frame cutting, color conversion, and metadata-embedded TIFF output.
 """
 
 import os
+import unicodedata
 import numpy as np
 
 from debug_log import debug_log
@@ -244,9 +245,11 @@ def get_output_filename(batch_name: str, frame_number: int) -> str:
     Generate the output filename for a frame.
     Format: {xxx}{yyy} where xxx is batch name, yyy is sequential number (1-based, zero-padded).
     """
-    safe_name = batch_name.translate(
-        str.maketrans('/\\:*?"<>|', '---------')
-    ).strip().rstrip("_-")
+    safe_name = ''.join(
+        '-' if char in '/\\:*?"<>|' or unicodedata.category(char).startswith('C')
+        else char
+        for char in batch_name
+    ).strip().strip('.-_ ')
     if not safe_name:
-        safe_name = "Film"
+        raise ValueError("Roll name is required")
     return f"{safe_name}_{frame_number:03d}.tif"

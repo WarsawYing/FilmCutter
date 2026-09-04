@@ -1,0 +1,5 @@
+# Runtime intentionally contains only NumPy and tifffile.
+numpy==2.5.1 \
+    --hash=sha256:6165343f81b56ef8f514f396989e529b61d9dc709b99421b07e9f3e698e2287d
+tifffile==2026.7.14 \
+    --hash=sha256:4eb20372e76edf2c9fed922b1e3a0a0567be3560bd2008336115763bb1f3c034

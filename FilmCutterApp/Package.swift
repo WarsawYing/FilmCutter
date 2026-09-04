@@ -10,9 +10,12 @@ let package = Package(
         .executableTarget(
             name: "FilmCutterApp",
             path: "Sources",
-            resources: [
-                .copy("Resources/logo.svg")
-            ]
+            exclude: ["Resources"]
+        ),
+        .testTarget(
+            name: "FilmCutterAppTests",
+            dependencies: ["FilmCutterApp"],
+            path: "Tests"
         )
     ]
 )

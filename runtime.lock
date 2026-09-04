@@ -1,0 +1,8 @@
+name=python-build-standalone
+release=20260807
+python_version=3.13.15
+asset=cpython-3.13.15+20260807-aarch64-apple-darwin-install_only_stripped.tar.gz
+url=https://github.com/astral-sh/python-build-standalone/releases/download/20260807/cpython-3.13.15%2B20260807-aarch64-apple-darwin-install_only_stripped.tar.gz
+sha256=dbadb0ffe46f8bace50daaf8a0c5fc6903c003690776da9eb5269e33c856bb53
+architecture=arm64
+minimum_macos=14.0
