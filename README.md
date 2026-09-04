@@ -15,7 +15,7 @@ FilmCutter 是一个原生 macOS 胶片裁切工具：导入胶片扫描稿，�
 ### Import / 导入
 
 <p align="center">
-  <img src="docs/images/filmcutterwelcome.png" alt="FilmCutter 导入页面" width="900">
+  <img src="docs/images/filmcutter-welcome.png" alt="FilmCutter 导入页面" width="900">
 </p>
 
 ### Preview & Adjust / 预览与调整
