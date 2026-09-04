@@ -1,13 +1,15 @@
 """Opt-in diagnostic logging for the Python engine."""
 
 import os
+import tempfile
 
 
 _ENABLED = os.environ.get("FILMCUTTER_DEBUG", "").lower() in {
     "1", "true", "yes"
 }
 _LOG_PATH = os.environ.get(
-    "FILMCUTTER_DEBUG_LOG", "/tmp/filmcutter_debug.log"
+    "FILMCUTTER_DEBUG_LOG",
+    os.path.join(tempfile.gettempdir(), "filmcutter_debug.log"),
 )
 
 

@@ -5,15 +5,17 @@ import os
 import sys
 import tempfile
 import unittest
+import hashlib
+import json
 
 import numpy as np
 import tifffile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from engine import handle_preview, handle_process
+from engine import handle_preview, handle_process, handle_validate_output
 from detectors.v2 import detect_file_v2
-from detectors.v2.detector import StripCandidate, _frames_from_strip
+from detectors.v2.detector import FORMAT_RATIOS, StripCandidate, _frames_from_strip
 from image_reader import read_image
 from processor import cut_frames, invert_image
 
@@ -91,8 +93,93 @@ class FilmCutterRegressionTests(unittest.TestCase):
 
         self.assertEqual(len(frames), 3)
 
+    def test_all_published_formats_use_v2_geometry(self):
+        texture = np.full((160, 1200), 0.02, dtype=np.float32)
+        strip = StripCandidate(0, 0, 1200, 160, 0.02, 1.0)
+        for format_id, ratio in FORMAT_RATIOS.items():
+            with self.subTest(format_id=format_id):
+                frames = _frames_from_strip(strip, texture, ratio=ratio)
+                self.assertGreaterEqual(len(frames), 1)
+                self.assertTrue(all(frame["width"] > 0 and frame["height"] > 0
+                                    for frame in frames))
+
+    def test_half_frame_is_formally_supported(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "half-frame.tif")
+            source = np.zeros((360, 900, 3), dtype=np.uint16)
+            rng = np.random.default_rng(22)
+            source[20:340, 10:890] = 5000
+            for index in range(6):
+                x0 = 20 + index * 140
+                source[30:330, x0:x0 + 130] = rng.integers(
+                    3000, 60000, size=(300, 130, 3), dtype=np.uint16)
+            tifffile.imwrite(path, source, photometric="rgb")
+            result = detect_file_v2(path, format_id="135_half")
+            self.assertEqual(result["selected_format"], "135_half")
+            self.assertGreaterEqual(result["frame_count"], 4)
+
+    def test_expected_count_is_soft_and_does_not_fill_blank_tail(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "expected-soft.tif")
+            source = np.zeros((1800, 700, 3), dtype=np.uint16)
+            rng = np.random.default_rng(44)
+            source[:, 170:530] = 5000
+            for index in range(2):
+                y0 = 25 + index * 580
+                source[y0:y0 + 550, 185:515] = rng.integers(
+                    6000, 52000, size=(550, 330, 3), dtype=np.uint16)
+            tifffile.imwrite(path, source, photometric="rgb")
+            result = detect_file_v2(path, "135", expected_count=3)
+            self.assertEqual(result["expected_count"], 3)
+            self.assertEqual(result["found_count"], 2)
+
+    def test_experimental_refinement_is_safe_to_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "refine.tif")
+            source = np.zeros((660, 900, 3), dtype=np.uint16)
+            rng = np.random.default_rng(78)
+            for index in range(2):
+                x0 = 30 + index * 400
+                source[30:310, x0:x0 + 390] = rng.integers(
+                    4000, 56000, size=(280, 390, 3), dtype=np.uint16)
+            tifffile.imwrite(path, source, photometric="rgb")
+            stable = detect_file_v2(path, "135")
+            refined = detect_file_v2(path, "135", refine_contour=True)
+            self.assertEqual(stable["frame_count"], refined["frame_count"])
+            self.assertTrue(refined["refinement_applied"] or
+                            refined["refinement_fallback_reason"])
+
+    def test_preview_is_tiff_and_contains_structured_protocol_fields(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "preview.tif")
+            source = np.zeros((360, 900, 3), dtype=np.uint16)
+            source[30:330, 20:880] = np.random.default_rng(3).integers(
+                3000, 60000, size=(300, 860, 3), dtype=np.uint16)
+            tifffile.imwrite(path, source, photometric="rgb")
+            response = handle_preview({
+                "files": [path], "format_id": "135",
+                "expected_count": 2, "refine_contour": False,
+            })
+            self.assertEqual(response["status"], "ok")
+            item = response["data"][0]
+            self.assertEqual(item["selected_format"], "135")
+            self.assertEqual(item["expected_count"], 2)
+            import base64
+            self.assertIn(b"II*", base64.b64decode(item["preview_b64"])[:4])
+
+    def test_validate_output_returns_same_names_as_processor(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            response = handle_validate_output({
+                "output_dir": temp_dir,
+                "batch_name": "胶卷 / 夏天",
+                "frame_count": 2,
+            })
+            self.assertEqual(response["status"], "ok")
+            self.assertEqual(response["filenames"], [
+                "胶卷 - 夏天_001.tif", "胶卷 - 夏天_002.tif"])
+
     def test_v2_sample_135_counts_when_fixture_folder_is_present(self):
-        sample_dir = os.path.abspath(os.path.join(
+        sample_dir = os.environ.get("FILMCUTTER_FIXTURE_DIR") or os.path.abspath(os.path.join(
             os.path.dirname(__file__),
             "..",
             "sampleTiffs",
@@ -127,6 +214,25 @@ class FilmCutterRegressionTests(unittest.TestCase):
                         max(frame["x"] for frame in left),
                         min(frame["x"] for frame in right),
                     )
+
+    def test_fixture_manifest_schema_and_optional_hashes(self):
+        manifest_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "test-fixtures", "manifest.json"))
+        with open(manifest_path, encoding="utf-8") as stream:
+            manifest = json.load(stream)
+        self.assertEqual(manifest["schema_version"], 1)
+        fixture_dir = os.environ.get("FILMCUTTER_FIXTURE_DIR")
+        if not fixture_dir:
+            self.skipTest("FILMCUTTER_FIXTURE_DIR is not set")
+        for fixture in manifest["beta_135"]:
+            path = os.path.join(fixture_dir, fixture["file"])
+            self.assertTrue(os.path.isfile(path), path)
+            if fixture.get("sha256"):
+                digest = hashlib.sha256()
+                with open(path, "rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                self.assertEqual(digest.hexdigest(), fixture["sha256"])
 
     def test_reads_rgb16_without_quantizing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -187,6 +293,13 @@ class FilmCutterRegressionTests(unittest.TestCase):
                 writer.write(np.ones((12, 16), dtype=np.uint16))
 
             with self.assertRaisesRegex(ValueError, "Multi-page TIFF"):
+                read_image(path)
+
+    def test_rejects_compressed_tiff_with_clear_contract(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "compressed.tif")
+            tifffile.imwrite(path, np.zeros((12, 16), dtype=np.uint16), compression="deflate")
+            with self.assertRaisesRegex(ValueError, "Compressed TIFF"):
                 read_image(path)
 
     def test_uint16_inversion_preserves_dtype_and_full_range(self):
@@ -345,7 +458,8 @@ class FilmCutterRegressionTests(unittest.TestCase):
             })
 
             self.assertEqual(response["status"], "error")
-            self.assertIn("already exists", response["error"])
+            self.assertEqual(response["error_code"], "ERR_OUTPUT_COLLISION")
+            self.assertEqual(response["collisions"], ["roll_001.tif"])
             with open(existing_path, "rb") as existing:
                 self.assertEqual(existing.read(), existing_bytes)
 
@@ -403,7 +517,7 @@ class FilmCutterRegressionTests(unittest.TestCase):
             })
 
             self.assertEqual(response["status"], "error")
-            self.assertIn("same length", response["error"])
+            self.assertEqual(response["error_code"], "ERR_BATCH_ALIGNMENT")
 
     def test_preview_reports_partial_batch_failure(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -420,8 +534,13 @@ class FilmCutterRegressionTests(unittest.TestCase):
             })
 
             self.assertEqual(response["status"], "error")
-            self.assertEqual(response["error_code"], "ERR_0007")
-            self.assertIn("missing.tif", response["message"])
+            self.assertEqual(response["error_code"], "ERR_PREVIEW_PARTIAL")
+            self.assertEqual(response["error_args"], [1])
+            self.assertEqual(response["data"][1]["error_args"], ["missing.tif"])
+
+    def test_error_protocol_does_not_embed_english_details(self):
+        response = handle_process({"files": [], "combined_frames": []})
+        self.assertEqual(response, {"status": "error", "error_code": "ERR_NO_INPUT"})
 
 
 if __name__ == "__main__":

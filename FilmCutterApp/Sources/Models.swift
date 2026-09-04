@@ -2,24 +2,26 @@ import Foundation
 
 // MARK: - Film Format Presets
 
-enum RollPreset: String, CaseIterable, Codable {
-    case auto = "Auto Detect"
-    case _135 = "135 / 35mm (3:2)"
-    case _135p = "135 / 35mm Portrait (2:3)"
-    case _65x24 = "65×24mm (2.71:1)"
-    case _645 = "645 / 6×4.5 (4:3)"
-    case _66 = "6×6 (1:1)"
-    case _67 = "6×7 (~5:4)"
-    case _68 = "6×8 (4:3)"
-    case _69 = "6×9 (3:2)"
-    case _612 = "6×12 (2:1)"
-    case _617 = "6×17 (2.83:1)"
+enum RollPreset: String, CaseIterable, Codable, Identifiable {
+    case auto
+    case _135 = "135"
+    case _135Half = "135_half"
+    case _65x24 = "65x24"
+    case _645 = "645"
+    case _66 = "66"
+    case _67 = "67"
+    case _68 = "68"
+    case _69 = "69"
+    case _612 = "612"
+    case _617 = "617"
+
+    var id: String { rawValue }
 
     var aspectRatio: Double {
         switch self {
         case .auto: return 0
         case ._135: return 3.0 / 2.0
-        case ._135p: return 2.0 / 3.0
+        case ._135Half: return 18.0 / 24.0
         case ._65x24: return 65.0 / 24.0
         case ._645: return 4.0 / 3.0
         case ._66: return 1.0
@@ -31,34 +33,27 @@ enum RollPreset: String, CaseIterable, Codable {
         }
     }
 
-    var identifier: String {
+    var identifier: String { rawValue }
+
+    var localizationKey: String {
         switch self {
-        case .auto: return "auto"
-        case ._135: return "135"
-        case ._135p: return "135p"
-        case ._65x24: return "65x24"
-        case ._645: return "645"
-        case ._66: return "66"
-        case ._67: return "67"
-        case ._68: return "68"
-        case ._69: return "69"
-        case ._612: return "612"
-        case ._617: return "617"
+        case .auto: return "format.auto"
+        case ._135: return "format.135"
+        case ._135Half: return "format.135_half"
+        case ._65x24: return "format.65x24"
+        case ._645: return "format.645"
+        case ._66: return "format.66"
+        case ._67: return "format.67"
+        case ._68: return "format.68"
+        case ._69: return "format.69"
+        case ._612: return "format.612"
+        case ._617: return "format.617"
         }
     }
-}
 
-// MARK: - Detector Versions
-
-enum DetectorMode: String, CaseIterable, Codable {
-    case v2 = "V2 — Constrained"
-    case classic = "Classic"
-
-    var identifier: String {
-        switch self {
-        case .v2: return "v2"
-        case .classic: return "classic"
-        }
+    static func from(identifier: String) -> RollPreset {
+        let normalized = identifier == "135p" ? "135" : identifier
+        return RollPreset(rawValue: normalized) ?? .auto
     }
 }
 
@@ -74,8 +69,12 @@ struct ScanPlan: Codable, Identifiable {
     /// tracking remain meaningful.
     var automaticFrames: [FilmFrame]
     var hasManualEdits: Bool
-    var detectorMode: DetectorMode
     var rollPreset: RollPreset
+    var expectedFrameCount: Int?
+    var useContourRefinement: Bool
+    var refinementApplied: Bool
+    var refinementFallbackReason: String?
+    var detectionRevision: Int
     var frameCount: Int { detectedFrames.count }
     var imageWidth: Int
     var imageHeight: Int
@@ -86,13 +85,47 @@ struct ScanPlan: Codable, Identifiable {
 // MARK: - Frame Model
 
 struct FilmFrame: Codable, Identifiable, Equatable {
+    /// Stable UI identity. It is intentionally not part of the Python wire
+    /// protocol: export order is represented by `index`, while SwiftUI keeps
+    /// tracking the same rectangle through moves, resizes and reordering.
+    let id: UUID
     let index: Int
     let x: Int
     let y: Int
     let width: Int
     let height: Int
 
-    var id: Int { index }
+    init(id: UUID = UUID(), index: Int, x: Int, y: Int, width: Int, height: Int) {
+        self.id = id
+        self.index = index
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case index, x, y, width, height
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = UUID()
+        index = try values.decode(Int.self, forKey: .index)
+        x = try values.decode(Int.self, forKey: .x)
+        y = try values.decode(Int.self, forKey: .y)
+        width = try values.decode(Int.self, forKey: .width)
+        height = try values.decode(Int.self, forKey: .height)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(index, forKey: .index)
+        try values.encode(x, forKey: .x)
+        try values.encode(y, forKey: .y)
+        try values.encode(width, forKey: .width)
+        try values.encode(height, forKey: .height)
+    }
 
     var aspectRatio: Double {
         guard height > 0 else { return 0 }
@@ -269,8 +302,10 @@ struct ProcessRequest: Codable {
     let batchName: String?
     let frames: [FilmFrame]?
     let files: [String]?
-    let format: String?
-    let detector: String?
+    let formatID: String?
+    let expectedCount: Int?
+    let refineContour: Bool?
+    let frameCount: Int?
     let combinedFrames: [[FilmFrame]]?
     let metadata: RollMetadata?
 
@@ -280,7 +315,11 @@ struct ProcessRequest: Codable {
         case invert
         case outputDir = "output_dir"
         case batchName = "batch_name"
-        case frames, files, format, detector, metadata
+        case frames, files, metadata
+        case formatID = "format_id"
+        case expectedCount = "expected_count"
+        case refineContour = "refine_contour"
+        case frameCount = "frame_count"
         case combinedFrames = "combined_frames"
     }
 }
