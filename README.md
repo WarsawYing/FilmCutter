@@ -26,7 +26,7 @@ FilmCutter 是一个原生 macOS 胶片裁切工具：导入胶片扫描稿，�
 
 ## Download / 下载
 
-**[Download FilmCutter v1.1 for Apple Silicon]((https://github.com/WarsawYing/FilmCutter/releases/tag/v1.1.0-rc.1)))**
+**[Download FilmCutter v1.1 for Apple Silicon](https://github.com/WarsawYing/FilmCutter/releases/download/v1.1.0-rc.1/FilmCutter-1.1-macOS-Apple-Silicon.zip)**
 
 - macOS 14 or later
 - Apple Silicon (M1/M2/M3/M4 and later)
