@@ -1,7 +1,7 @@
 # FilmCutter
 
-> Next release: **1.1** (`v1.1.0`, release candidate)
-> Latest public download: **1.01 Beta** (`v1.0.1-beta.1`)
+> Current release: **1.2.1** (`v1.2.1`)
+> Latest public download: **FilmCutter 1.2.1**
 > Copyright © 2026 Warsawying
 
 FilmCutter is a native macOS app that detects frames in scanned film TIFFs and
@@ -15,18 +15,18 @@ FilmCutter 是一个原生 macOS 胶片裁切工具：导入胶片扫描稿，�
 ### Import / 导入
 
 <p align="center">
-  <img src="docs/images/filmcutter-welcome.png" alt="FilmCutter 导入页面" width="900">
+  <img src="docs/images/filmcutter-welcome.png" alt="FilmCutter Initial Page/导入页面" width="900">
 </p>
 
 ### Preview & Adjust / 预览与调整
 
 <p align="center">
-  <img src="docs/images/filmcutterScreenshot.png" alt="FilmCutter 画格预览与调整页面" width="900">
+  <img src="docs/images/filmcutter-1.2.1-promo-zh.png" alt="FilmCutter 1.2.1 反相、旋转、裁切与单张照片调整" width="900">
 </p>
 
 ## Download / 下载
 
-**[Download FilmCutter v1.1 for Apple Silicon](https://github.com/WarsawYing/FilmCutter/releases/download/v1.1.0-rc.1/FilmCutter-1.1-macOS-Apple-Silicon.zip)**
+**[Download FilmCutter 1.2.1 for Apple Silicon](https://github.com/WarsawYing/FilmCutter/releases/download/v1.2.1/FilmCutter-1.2.1-macOS-Apple-Silicon.zip)**
 
 - macOS 14 or later
 - Apple Silicon (M1/M2/M3/M4 and later)
@@ -39,29 +39,29 @@ The app is installed to `~/Applications` and can be opened normally afterwards.
 下载后解压，双击 `安装 FilmCutter.command`。安装完成后，应用会出现在
 `~/Applications`，以后直接点击 FilmCutter 即可。
 
-Because this Beta is ad-hoc signed, the first launch may require right-clicking
-FilmCutter and choosing **Open**, or approving it under **Privacy & Security**.
-The installer does not remove quarantine or bypass Gatekeeper.
+FilmCutter 1.2.1 is the latest public release. It is distributed with an
+ad-hoc signature and is not currently notarized by Apple. On first launch,
+macOS may require users to right-click the app and choose Open, or approve it
+under Privacy & Security.
 
-## What’s new in 1.1
 
-- Preview images and frame overlays are clipped to a resizable canvas, so very
-  wide or tall scans cannot cover the controls.
-- Manual frames keep stable identities through move, resize, delete, reorder,
-  undo and redo operations.
-- Frame movement and resizing are constrained to the scan; likely duplicate
-  frames are visibly flagged before export.
-- Multi-scan re-detection is transactional: cancellation or any failed scan
-  keeps every previous detection and manual adjustment intact.
-- Explicit reading-order renumbering keeps export order predictable.
-- A smaller bundled runtime removes NumPy test suites, f2py and unused command
-  line tools while retaining the two required runtime packages.
+## FilmCutter 1.2.1
 
-The public 1.1 download will be linked here after the release candidate passes
-the real-scan matrix and receives Developer ID signing and notarization. The
-current public Beta remains available below.
+FilmCutter 1.2.1 brings a clearer and more direct workflow for scanned film.
 
-## Included since 1.01 Beta
+### Highlights
+
+- Sharper 1800 px previews for inspecting individual frames.
+- One-click negative inversion.
+- Optional per-channel RGB Auto Levels.
+- Lossless 90° rotation and horizontal/vertical mirroring.
+- Direct free-crop editing with eight resize handles.
+- Movable 3:2 and other strict-ratio crops.
+- Explicit Current Photo, Selected Photos and All Photos scopes.
+- Undo, redo, reset and stable original comparison.
+- Native 8/16-bit TIFF output remains supported.
+
+## Included since older visions
 
 - Live language switching: English, 简体中文, 日本語, Español and Français.
 - Reversible **Import → Preview & Adjust → Export Confirmation** workflow.
@@ -85,6 +85,7 @@ error instead of silently changing pixels.
 
 | Version | Status | Date | Documentation | Download |
 |---|---|---|---|---|
+| **1.2.1** (`v1.2.1`) | Latest public release | 2026-09-27 | [Release notes](https://github.com/WarsawYing/FilmCutter/releases/tag/v1.2.1) | [ZIP](https://github.com/WarsawYing/FilmCutter/releases/download/v1.2.1/FilmCutter-1.2.1-macOS-Apple-Silicon.zip) |
 | **1.1** (`v1.1.0`) | Release candidate | 2026 | [Development notes](versions/v1.1.0/README.md) | Pending validation/signing |
 | **1.01 Beta** (`v1.0.1-beta.1`) | Latest public pre-release | 2026-08-12 | [Release notes](versions/v1.0.1-beta.1/README.md) · [Install](versions/v1.0.1-beta.1/INSTALL.md) | [ZIP](https://github.com/WarsawYing/FilmCutter/releases/download/v1.0.1-beta.1/FilmCutter-1.01-Beta-macOS-Apple-Silicon.zip) |
 | Ver.1 (`v1.0.0`) | Archived | 2026 | [Original documentation](versions/v1.0.0/README.md) | Source archive / original distribution |
